@@ -1,4 +1,7 @@
-<!DOCTYPE html>
+window.cloudAiTemplate = `
+  <div id="app">
+    <aside class="sidebar" id="sidebar">
+       <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -408,3 +411,7 @@ Type "help" to see available commands.</div>
 <script src="https://cdn.jsdelivr.net/gh/GitGamerlol/cloud-ai@854ba4f7afde41b65864395c884f47158ed86ac8/script.js"></script>
 </body>
 </html>
+
+    </aside>
+  </div>
+`;
