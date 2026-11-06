@@ -1,0 +1,165 @@
+/* Additional interface components */
+
+.attach-preview {
+  display:none;
+  align-items:center;
+  gap:10px;
+  padding:8px;
+  margin-bottom:8px;
+  background:var(--panel2);
+  border:1px solid var(--line);
+  border-radius:10px;
+  font-size:10px;
+}
+
+.attach-preview.show {
+  display:flex;
+}
+
+.attach-preview img {
+  width:42px;
+  height:42px;
+  object-fit:cover;
+  border-radius:7px;
+}
+
+.attach-preview span {
+  flex:1;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+.attach-preview button,
+.voice-bar button {
+  border:0;
+  background:var(--panel3);
+  color:var(--text);
+  border-radius:7px;
+  padding:6px 9px;
+  font-size:10px;
+}
+
+.voice-bar {
+  display:none;
+  align-items:center;
+  justify-content:space-between;
+  max-width:930px;
+  margin:0 auto 8px;
+  padding:9px 12px;
+  border-radius:10px;
+  background:var(--panel2);
+  font-size:11px;
+}
+
+.voice-bar.show {
+  display:flex;
+}
+
+.resource-card .resource-type {
+  color:var(--accent);
+  font-weight:800;
+}
+
+.resource-card .resource-expand {
+  cursor:pointer;
+}
+
+.resource-expanded {
+  width:100%;
+  padding:9px;
+  margin-top:7px;
+  border-top:1px solid var(--line);
+  color:var(--muted);
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+  max-height:180px;
+  overflow:auto;
+  font:10px/1.5 monospace;
+}
+
+.resource-card {
+  flex-wrap:wrap;
+}
+
+.empty-history {
+  padding:15px;
+  text-align:center;
+  color:var(--muted);
+  font-size:10px;
+}
+
+.popup-cover {
+  position:fixed;
+  inset:0;
+  z-index:200;
+  background:#080b12;
+  color:#eaf0ff;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:15px;
+  text-align:center;
+}
+
+.popup-cover button {
+  padding:12px 20px;
+  border:1px solid #526b8a;
+  border-radius:10px;
+  color:white;
+  background:#18283d;
+}
+
+.studio-toolbar button {
+  margin-left:5px;
+}
+
+.studio-files .btn {
+  margin-top:10px;
+  width:100%;
+}
+
+.message-content .colored {
+  font-weight:700;
+}
+
+.message-content .sized {
+  display:inline-block;
+  line-height:1.35;
+}
+
+.message-content .form-result {
+  margin-top:10px;
+  padding:9px;
+  border-radius:8px;
+  background:var(--panel3);
+  font-size:11px;
+}
+
+.message-content .form-result pre {
+  white-space:pre-wrap;
+}
+
+.message-content .task-list {
+  list-style:none;
+  padding-left:5px;
+}
+
+.message-content .task-list input {
+  margin-right:8px;
+}
+
+.bulk-bar .btn {
+  padding:7px;
+  font-size:10px;
+}
+
+#app.sidebar-closed .main {
+  min-width:0;
+}
+
+@media(max-width:760px) {
+  .sidebar.mobile-open {
+    display:flex;
+  }
+}
