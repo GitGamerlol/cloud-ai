@@ -611,22 +611,100 @@ function createDefaultIcon() {
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
       <rect width="32" height="32" rx="9" fill="#68b9c9"/>
-      <path d="M5 10.5 16 4l11 6.5v11L16 28 5 21.5z"
-        fill="none" stroke="white" stroke-width="2"/>
-      <path d="M16 17v11M5 10.5l11 6.5 11-6.5"
-        fill="none" stroke="white" stroke-width="2"/>
+      <path
+        d="M5 10.5 16 4l11 6.5v11L16 28 5 21.5z"
+        fill="none"
+        stroke="white"
+        stroke-width="2"
+      />
+      <path
+        d="M16 17v11M5 10.5l11 6.5 11-6.5"
+        fill="none"
+        stroke="white"
+        stroke-width="2"
+      />
     </svg>`;
 
-  return "data:image/svg+xml," +
+  return "data:image/svg+xml;charset=utf-8," +
     encodeURIComponent(svg);
 }
 
-{
-  const icon = document.createElement("link");
-  icon.rel = "icon";
-  icon.href = createDefaultIcon();
-  document.head.appendChild(icon);
+function setFavicon(url = "") {
+  const value = String(url || "").trim();
+
+  let link = document.querySelector(
+    'link[data-cloudai-favicon="true"]'
+  );
+
+  if (!link) {
+    link = document.createElement("link");
+    link.rel = "icon";
+    link.dataset.cloudaiFavicon = "true";
+    document.head.appendChild(link);
+  }
+
+  if (!value) {
+    link.type = "image/svg+xml";
+    link.href = createDefaultIcon();
+    return;
+  }
+
+  if (
+    !/^https?:\/\//i.test(value) &&
+    !/^data:image\//i.test(value)
+  ) {
+    toast("Use a direct image URL (PNG, ICO, SVG, or WEBP).");
+    link.href = createDefaultIcon();
+    return;
+  }
+
+  link.href = value;
 }
+
+function applyTabSettings() {
+  let savedTitle = "CloudAI";
+  let savedIcon = "";
+
+  try {
+    savedTitle =
+      localStorage.getItem("cloudai_tab_title") || "CloudAI";
+
+    savedIcon =
+      localStorage.getItem("cloudai_tab_icon") || "";
+
+  } catch(error) {}
+
+  document.title = savedTitle;
+
+  $("tabTitle").value = savedTitle;
+  $("tabIcon").value = savedIcon;
+
+  // Initialize the favicon immediately.
+  setFavicon(savedIcon);
+}
+
+$("tabTitle").addEventListener("change", () => {
+  const title = $("tabTitle").value.trim() || "CloudAI";
+
+  document.title = title;
+
+  try {
+    localStorage.setItem("cloudai_tab_title", title);
+  } catch(error) {}
+});
+
+$("tabIcon").addEventListener("change", () => {
+  const value = $("tabIcon").value.trim();
+
+  setFavicon(value);
+
+  try {
+    localStorage.setItem("cloudai_tab_icon", value);
+  } catch(error) {}
+});
+
+// IMPORTANT: Run on startup.
+applyTabSettings();
 
 $("speechRate").addEventListener("input", () => {
   state.speechRate = Number($("speechRate").value);
