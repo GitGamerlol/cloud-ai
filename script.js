@@ -1813,11 +1813,11 @@ function renderInline(value) {
   text = text.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
   text = text.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
 
-  text = text.replace(
-    /$begin:math:display$\(\[\^$end:math:display$]+)\]$begin:math:text$\(https\?\:\\\/\\\/\[\^\)\\s\]\+\)$end:math:text$/g,
-    (_, label, url) =>
-      `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`
-  );
+   text = text.replace(
+     /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+     (_, label, url) =>
+       `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`
+   );
 
   text = text.replace(
     /%%INLINECODE_(\d+)%%/g,
