@@ -794,6 +794,20 @@ function newConversation() {
   $("prompt").focus();
 }
 
+function cleanStoredUserMessage(content) {
+  const value = String(content || "");
+  const prefix = "[CloudAI response instructions]";
+  const userMarker = "[User message]";
+
+  if (!value.startsWith(prefix)) return value;
+
+  const markerIndex = value.indexOf(userMarker);
+  if (markerIndex === -1) return value;
+
+  return value.slice(markerIndex + userMarker.length)
+    .replace(/^\s+/, "");
+}
+
 async function openConversation(id) {
   try {
     const response = await api(
@@ -806,8 +820,15 @@ async function openConversation(id) {
 
     const data = await response.json();
 
+    // Clean old messages before rendering them.
+    state.messages = (data.messages || []).map(message => ({
+      ...message,
+      content: message.role === "user"
+        ? cleanStoredUserMessage(message.content)
+        : message.content
+    }));
+
     state.conversationId = id;
-    state.messages = data.messages || [];
     state.firstMessageSent = state.messages.some(
       message => message.role === "user"
     );
@@ -829,7 +850,6 @@ async function openConversation(id) {
           parsed.resources,
           false
         );
-
       } else {
         renderMessage(
           "assistant",
@@ -839,6 +859,18 @@ async function openConversation(id) {
         );
       }
     }
+
+    renderConversations();
+    $("sidebar").classList.remove("mobile-open");
+
+    requestAnimationFrame(() => {
+      scrollBottom();
+    });
+
+  } catch(error) {
+    toast(error.message);
+  }
+}
 
     renderConversations();
 
@@ -1667,241 +1699,408 @@ $("prompt").addEventListener("input", updateEstimate);
    MARKDOWN AND CLOUDAI DISPLAY COMMAND RENDERER
    ========================================================= */
 
-function renderMarkdown(source) {
-  let text = String(source || "");
+function decodeModelEntities(value) {
+  return String(value)
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#34;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
 
-  const codeBlocks = [];
+function renderInline(value) {
+  let text = escapeHTML(value);
+  const inlineCode = [];
+
+  text = text.replace(/`([^`\n]+)`/g, (_, code) => {
+    const index = inlineCode.push(code) - 1;
+    return `%%INLINECODE_${index}%%`;
+  });
 
   text = text.replace(
-    /```([\w.+#-]*)\n([\s\S]*?)```/g,
-    (_, language, code) => {
-      const index = codeBlocks.length;
+    /$begin:math:display$\\\[color\=\(\#\[0\-9a\-fA\-F\]\{3\,8\}\)$end:math:display$\]([\s\S]*?)$begin:math:display$\\\[\\\/color$end:math:display$\]/g,
+    (_, color, content) =>
+      `<span class="colored" style="color:${color}">${content}</span>`
+  );
 
-      codeBlocks.push({
-        language:language || "code",
-        code
-      });
-
-      return `\n%%CODEBLOCK_${index}%%\n`;
+  text = text.replace(
+    /$begin:math:display$\\\[size\=\(\\d\{1\,2\}\)$end:math:display$\]([\s\S]*?)$begin:math:display$\\\[\\\/size$end:math:display$\]/g,
+    (_, size, content) => {
+      const px = Math.min(42, Math.max(10, Number(size)));
+      return `<span class="sized" style="font-size:${px}px">${content}</span>`;
     }
   );
 
-  // Escape everything before rendering formatting.
-  text = escapeHTML(text);
-
-  // Special color and size commands.
-  text = text.replace(
-    /\[\[color=(#[0-9a-fA-F]{3,8})\]\]([\s\S]*?)\[\[\/color\]\]/g,
-    '<span class="colored" style="color:$1">$2</span>'
-  );
+  text = text.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  text = text.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
 
   text = text.replace(
-    /\[\[size=(\d{1,2})\]\]([\s\S]*?)\[\[\/size\]\]/g,
-    (_, size, content) =>
-      `<span class="sized" style="font-size:${Math.min(42,Math.max(10,Number(size)))}px">${content}</span>`
-  );
-
-  // Callouts.
-  text = text.replace(
-    /\[\[callout=(info|success|warning|error)\]\]([\s\S]*?)\[\[\/callout\]\]/g,
-    (_, type, content) =>
-      `<div class="callout ${type}">${content.replace(/\n/g,"<br>")}</div>`
-  );
-
-  // Interactive forms.
-  text = text.replace(
-    /\[\[form\]\]([\s\S]*?)\[\[\/form\]\]/g,
-    (_, json) => {
-      let form;
-
-      try {
-        form = JSON.parse(json);
-      } catch(e) {
-        return `<pre>${escapeHTML(json)}</pre>`;
-      }
-
-      if (!form || !Array.isArray(form.fields)) {
-        return `<pre>${escapeHTML(json)}</pre>`;
-      }
-
-      const fields = form.fields.map((field, index) => {
-        const label = escapeHTML(field.label || field.name || "Field");
-        const name = escapeHTML(field.name || "field_" + index);
-        const required = field.required ? "required" : "";
-
-        if (field.type === "textarea") {
-          return `
-            <label>${label}</label>
-            <textarea name="${name}" ${required}></textarea>
-          `;
-        }
-
-        if (field.type === "select") {
-          const options = (field.options || [])
-            .map(option =>
-              `<option>${escapeHTML(option)}</option>`
-            ).join("");
-
-          return `
-            <label>${label}</label>
-            <select name="${name}" ${required}>
-              <option value="">Choose…</option>
-              ${options}
-            </select>
-          `;
-        }
-
-        const type = ["text","number","email","date"]
-          .includes(field.type) ? field.type : "text";
-
-        return `
-          <label>${label}</label>
-          <input type="${type}" name="${name}" ${required}>
-        `;
-      }).join("");
-
-      const title = escapeHTML(form.title || "Quick form");
-      const description = escapeHTML(form.description || "");
-      const submit = escapeHTML(form.submitLabel || "Submit");
-
-      const safeID = uid();
-
-      setTimeout(() => {
-        const formElement = document.getElementById(safeID);
-
-        if (!formElement) return;
-
-        formElement.addEventListener("submit", event => {
-          event.preventDefault();
-
-          const values = Object.fromEntries(
-            new FormData(formElement).entries()
-          );
-
-          const result = Object.entries(values)
-            .map(([key,value]) => key + ": " + value)
-            .join("\n");
-
-          const output = document.createElement("div");
-          output.className = "form-result";
-          output.textContent = "Submitted:\n" + result;
-
-          formElement.replaceWith(output);
-
-          $("prompt").value =
-            "Here are my answers to your questions:\n" + result;
-
-          updateEstimate();
-          $("prompt").focus();
-        });
-
-      }, 0);
-
-      return `
-        <form class="mini-form" id="${safeID}">
-          <strong>${title}</strong>
-          <p>${description}</p>
-          ${fields}
-          <button class="btn primary" type="submit">${submit}</button>
-        </form>
-      `;
-    }
-  );
-
-  // Inline formatting.
-  text = text.replace(
-    /`([^`\n]+)`/g,
-    "<code>$1</code>"
-  );
-
-  text = text.replace(
-    /\*\*(.*?)\*\*/g,
-    "<strong>$1</strong>"
-  );
-
-  text = text.replace(
-    /(^|[^*])\*([^*\n]+)\*/g,
-    "$1<em>$2</em>"
-  );
-
-  text = text.replace(
-    /^### (.*)$/gm,
-    "<h3>$1</h3>"
-  );
-
-  text = text.replace(
-    /^## (.*)$/gm,
-    "<h2>$1</h2>"
-  );
-
-  text = text.replace(
-    /^# (.*)$/gm,
-    "<h1>$1</h1>"
-  );
-
-  text = text.replace(
-    /^&gt; (.*)$/gm,
-    "<blockquote>$1</blockquote>"
-  );
-
-  text = text.replace(
-    /^---$/gm,
-    "<hr>"
-  );
-
-  // Links: only safe web protocols.
-  text = text.replace(
-    /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+    /$begin:math:display$\(\[\^$end:math:display$]+)\]$begin:math:text$\(https\?\:\\\/\\\/\[\^\)\\s\]\+\)$end:math:text$/g,
     (_, label, url) =>
       `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`
   );
 
-  // Lists.
   text = text.replace(
-    /^(?:- |\* )(.*)$/gm,
-    "<li>$1</li>"
-  );
-
-  text = text.replace(
-    /(<li>[\s\S]*?<\/li>)/g,
-    match => "<ul>" + match + "</ul>"
-  );
-
-  text = text.replace(
-    /(\d+)\. (.*)/g,
-    "<li>$2</li>"
-  );
-
-  // Paragraphs and line breaks.
-  text = text.replace(/\n{2,}/g, "</p><p>");
-  text = text.replace(/\n/g, "<br>");
-
-  text = "<p>" + text + "</p>";
-
-  // Restore code blocks with copy buttons.
-  text = text.replace(
-    /%%CODEBLOCK_(\d+)%%/g,
-    (_, index) => {
-      const block = codeBlocks[Number(index)];
-      if (!block) return "";
-
-      const code = escapeHTML(block.code);
-      const lang = escapeHTML(block.language);
-
-      return `
-        <div class="code-wrap">
-          <div class="code-head">
-            <span>${lang}</span>
-            <button type="button" class="copy-code">Copy code</button>
-          </div>
-          <pre><code>${code}</code></pre>
-        </div>
-      `;
-    }
+    /%%INLINECODE_(\d+)%%/g,
+    (_, index) =>
+      `<code>${escapeHTML(inlineCode[Number(index)] || "")}</code>`
   );
 
   return text;
 }
+
+function renderMarkdown(source) {
+  const lines = String(source || "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n");
+
+  const output = [];
+
+  function isTableSeparator(line) {
+    return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
+  }
+
+  function tableCells(line) {
+    return line.trim()
+      .replace(/^\|/, "")
+      .replace(/\|$/, "")
+      .split("|")
+      .map(cell => cell.trim());
+  }
+
+  function isBlockStart(index) {
+    const line = lines[index] || "";
+
+    return (
+      /^\s*```/.test(line) ||
+      /^\s*#{1,3}\s+/.test(line) ||
+      /^\s*>\s?/.test(line) ||
+      /^\s*(---|\*\*\*)\s*$/.test(line) ||
+      /^\s*[-*]\s+/.test(line) ||
+      /^\s*\d+\.\s+/.test(line) ||
+      /^\s*\[\[callout=/.test(line) ||
+      /^\s*\[\[form\]\]/.test(line) ||
+      (index + 1 < lines.length &&
+        line.includes("|") &&
+        isTableSeparator(lines[index + 1]))
+    );
+  }
+
+  function makeForm(jsonText) {
+    let formData;
+
+    try {
+      formData = JSON.parse(
+        decodeModelEntities(jsonText.trim())
+      );
+    } catch(error) {
+      return `<pre>${escapeHTML(jsonText)}</pre>`;
+    }
+
+    if (!formData || !Array.isArray(formData.fields)) {
+      return `<pre>${escapeHTML(jsonText)}</pre>`;
+    }
+
+    const id = uid();
+    const title = escapeHTML(formData.title || "Quick form");
+    const description = escapeHTML(formData.description || "");
+    const submitLabel = escapeHTML(formData.submitLabel || "Submit");
+
+    const fields = formData.fields.slice(0, 20).map((field, index) => {
+      const label = escapeHTML(field.label || field.name || "Field");
+
+      const name = String(field.name || `field_${index}`)
+        .replace(/[^\w-]/g, "_");
+
+      const required = field.required ? "required" : "";
+
+      if (field.type === "textarea") {
+        return `<label>${label}</label>
+          <textarea name="${name}" ${required}></textarea>`;
+      }
+
+      if (field.type === "select") {
+        const options = (
+          Array.isArray(field.options) ? field.options : []
+        ).map(option =>
+          `<option value="${escapeHTML(option)}">${escapeHTML(option)}</option>`
+        ).join("");
+
+        return `<label>${label}</label>
+          <select name="${name}" ${required}>
+            <option value="">Choose…</option>
+            ${options}
+          </select>`;
+      }
+
+      const type = ["text", "number", "email", "date"]
+        .includes(field.type) ? field.type : "text";
+
+      return `<label>${label}</label>
+        <input type="${type}" name="${name}" ${required}>`;
+    }).join("");
+
+    return `<form class="mini-form" id="${id}">
+      <strong>${title}</strong>
+      ${description ? `<p>${description}</p>` : ""}
+      ${fields}
+      <button class="btn primary" type="submit">${submitLabel}</button>
+    </form>`;
+  }
+
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    if (!line.trim()) {
+      i++;
+      continue;
+    }
+
+    // Code blocks
+    const fence = line.match(/^\s*```([\w.+#-]*)\s*$/);
+
+    if (fence) {
+      const language = fence[1] || "code";
+      i++;
+
+      const codeLines = [];
+
+      while (i < lines.length && !/^\s*```\s*$/.test(lines[i])) {
+        codeLines.push(lines[i]);
+        i++;
+      }
+
+      if (i < lines.length) i++;
+
+      output.push(`<div class="code-wrap">
+        <div class="code-head">
+          <span>${escapeHTML(language)}</span>
+          <button type="button" class="copy-code">Copy code</button>
+        </div>
+        <pre><code>${escapeHTML(codeLines.join("\n"))}</code></pre>
+      </div>`);
+
+      continue;
+    }
+
+    // Callouts
+    const callout = line.match(
+      /^\s*\[\[callout=(info|success|warning|error)\]\]\s*$/
+    );
+
+    if (callout) {
+      i++;
+
+      const content = [];
+
+      while (i < lines.length &&
+        !/^\s*\[\[\/callout\]\]\s*$/.test(lines[i])) {
+        content.push(lines[i]);
+        i++;
+      }
+
+      if (i < lines.length) i++;
+
+      output.push(
+        `<div class="callout ${callout[1]}">` +
+        renderMarkdown(content.join("\n")) +
+        `</div>`
+      );
+
+      continue;
+    }
+
+    // Forms
+    if (/^\s*\[\[form\]\]\s*$/.test(line)) {
+      i++;
+
+      const json = [];
+
+      while (i < lines.length &&
+        !/^\s*\[\[\/form\]\]\s*$/.test(lines[i])) {
+        json.push(lines[i]);
+        i++;
+      }
+
+      if (i < lines.length) i++;
+
+      output.push(makeForm(json.join("\n")));
+      continue;
+    }
+
+    // Headings
+    const heading = line.match(/^\s*(#{1,3})\s+(.+)$/);
+
+    if (heading) {
+      const level = heading[1].length;
+
+      output.push(
+        `<h${level}>${renderInline(heading[2])}</h${level}>`
+      );
+
+      i++;
+      continue;
+    }
+
+    // Horizontal rule
+    if (/^\s*(---|\*\*\*)\s*$/.test(line)) {
+      output.push("<hr>");
+      i++;
+      continue;
+    }
+
+    // Tables
+    if (
+      i + 1 < lines.length &&
+      line.includes("|") &&
+      isTableSeparator(lines[i + 1])
+    ) {
+      const headers = tableCells(line);
+      i += 2;
+
+      const rows = [];
+
+      while (
+        i < lines.length &&
+        lines[i].includes("|") &&
+        lines[i].trim()
+      ) {
+        rows.push(tableCells(lines[i]));
+        i++;
+      }
+
+      const head = headers.map(cell =>
+        `<th>${renderInline(cell)}</th>`
+      ).join("");
+
+      const body = rows.map(row =>
+        `<tr>${headers.map((_, column) =>
+          `<td>${renderInline(row[column] || "")}</td>`
+        ).join("")}</tr>`
+      ).join("");
+
+      output.push(`<div class="table-wrap">
+        <table>
+          <thead><tr>${head}</tr></thead>
+          <tbody>${body}</tbody>
+        </table>
+      </div>`);
+
+      continue;
+    }
+
+    // Blockquotes
+    if (/^\s*>\s?/.test(line)) {
+      const quote = [];
+
+      while (i < lines.length && /^\s*>\s?/.test(lines[i])) {
+        quote.push(lines[i].replace(/^\s*>\s?/, ""));
+        i++;
+      }
+
+      output.push(
+        `<blockquote>${renderMarkdown(quote.join("\n"))}</blockquote>`
+      );
+
+      continue;
+    }
+
+    // Lists
+    if (
+      /^\s*[-*]\s+/.test(line) ||
+      /^\s*\d+\.\s+/.test(line)
+    ) {
+      const ordered = /^\s*\d+\.\s+/.test(line);
+      const tag = ordered ? "ol" : "ul";
+      const items = [];
+
+      while (i < lines.length) {
+        const match = ordered
+          ? lines[i].match(/^\s*\d+\.\s+(.+)$/)
+          : lines[i].match(/^\s*[-*]\s+(.+)$/);
+
+        if (!match) break;
+
+        items.push(`<li>${renderInline(match[1])}</li>`);
+        i++;
+      }
+
+      output.push(`<${tag}>${items.join("")}</${tag}>`);
+      continue;
+    }
+
+    // Paragraphs
+    const paragraph = [line];
+    i++;
+
+    while (
+      i < lines.length &&
+      lines[i].trim() &&
+      !isBlockStart(i)
+    ) {
+      paragraph.push(lines[i]);
+      i++;
+    }
+
+    output.push(
+      `<p>${paragraph.map(renderInline).join("<br>")}</p>`
+    );
+  }
+
+  return output.join("");
+}
+
+$("messages").addEventListener("click", async event => {
+  const button = event.target.closest(".copy-code");
+  if (!button) return;
+
+  const code = button.closest(".code-wrap")
+    ?.querySelector("pre")?.innerText;
+
+  if (code == null) return;
+
+  try {
+    await navigator.clipboard.writeText(code);
+    button.textContent = "Copied!";
+
+    setTimeout(() => {
+      button.textContent = "Copy code";
+    }, 1400);
+
+  } catch(error) {
+    toast("Clipboard access unavailable.");
+  }
+});
+
+$("messages").addEventListener("submit", event => {
+  const form = event.target.closest(".mini-form");
+  if (!form) return;
+
+  event.preventDefault();
+
+  const values = Object.fromEntries(
+    new FormData(form).entries()
+  );
+
+  const result = Object.entries(values)
+    .map(([key, value]) => `${key}: ${value}`)
+    .join("\n");
+
+  const output = document.createElement("div");
+  output.className = "form-result";
+  output.textContent = "Submitted:\n" + result;
+
+  form.replaceWith(output);
+
+  $("prompt").value =
+    "Here are my answers to your questions:\n" + result;
+
+  updateEstimate();
+  $("prompt").focus();
+});
 
 /* =========================================================
    MESSAGE RENDERING
@@ -1933,26 +2132,6 @@ function renderMessage(role, content, resources = [], addTools = true) {
   body.className = "message-content";
 
   body.innerHTML = renderMarkdown(content);
-
-  body.querySelectorAll(".copy-code").forEach(button => {
-    button.addEventListener("click", async () => {
-      const code = button.closest(".code-wrap")
-        .querySelector("pre").innerText;
-
-      try {
-        await navigator.clipboard.writeText(code);
-        button.textContent = "Copied!";
-        sound("success");
-
-        setTimeout(() => {
-          button.textContent = "Copy code";
-        }, 1500);
-
-      } catch(e) {
-        toast("Clipboard access unavailable.");
-      }
-    });
-  });
 
   bubble.appendChild(meta);
 
