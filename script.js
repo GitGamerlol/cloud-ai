@@ -631,7 +631,6 @@ function createDefaultIcon() {
 
 function setFavicon(url = "") {
   const value = String(url || "").trim();
-
   let link = document.querySelector(
     'link[data-cloudai-favicon="true"]'
   );
@@ -646,19 +645,28 @@ function setFavicon(url = "") {
   if (!value) {
     link.type = "image/svg+xml";
     link.href = createDefaultIcon();
-    return;
+    return true;
   }
 
-  if (
-    !/^https?:\/\//i.test(value) &&
-    !/^data:image\//i.test(value)
-  ) {
+  let parsed;
+  try {
+    parsed = new URL(value, window.location.href);
+  } catch(error) {
+    toast("That favicon URL is invalid.");
+    link.href = createDefaultIcon();
+    return false;
+  }
+
+  if (!["https:", "http:", "data:"].includes(parsed.protocol) ||
+      (parsed.protocol === "data:" && !/^data:image\//i.test(value))) {
     toast("Use a direct image URL (PNG, ICO, SVG, or WEBP).");
     link.href = createDefaultIcon();
-    return;
+    return false;
   }
 
-  link.href = value;
+  link.removeAttribute("type");
+  link.href = parsed.href;
+  return true;
 }
 
 function applyTabSettings() {
@@ -696,7 +704,7 @@ $("tabTitle").addEventListener("change", () => {
 $("tabIcon").addEventListener("change", () => {
   const value = $("tabIcon").value.trim();
 
-  setFavicon(value);
+  if (!setFavicon(value)) return;
 
   try {
     localStorage.setItem("cloudai_tab_icon", value);
@@ -944,17 +952,6 @@ async function openConversation(id) {
     requestAnimationFrame(() => {
       scrollBottom();
     });
-
-  } catch(error) {
-    toast(error.message);
-  }
-}
-
-    renderConversations();
-
-    $("sidebar").classList.remove("mobile-open");
-
-    scrollBottom();
 
   } catch(error) {
     toast(error.message);
@@ -1797,13 +1794,13 @@ function renderInline(value) {
   });
 
   text = text.replace(
-    /$begin:math:display$\\\[color\=\(\#\[0\-9a\-fA\-F\]\{3\,8\}\)$end:math:display$\]([\s\S]*?)$begin:math:display$\\\[\\\/color$end:math:display$\]/g,
+    /\[\[color=(#[0-9a-fA-F]{3,8})\]\]([\s\S]*?)\[\[\/color\]\]/g,
     (_, color, content) =>
       `<span class="colored" style="color:${color}">${content}</span>`
   );
 
   text = text.replace(
-    /$begin:math:display$\\\[size\=\(\\d\{1\,2\}\)$end:math:display$\]([\s\S]*?)$begin:math:display$\\\[\\\/size$end:math:display$\]/g,
+    /\[\[size=(\d{1,2})\]\]([\s\S]*?)\[\[\/size\]\]/g,
     (_, size, content) => {
       const px = Math.min(42, Math.max(10, Number(size)));
       return `<span class="sized" style="font-size:${px}px">${content}</span>`;
@@ -1813,11 +1810,11 @@ function renderInline(value) {
   text = text.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
   text = text.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
 
-   text = text.replace(
-     /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
-     (_, label, url) =>
-       `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`
-   );
+  text = text.replace(
+    /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+    (_, label, url) =>
+      `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`
+  );
 
   text = text.replace(
     /%%INLINECODE_(\d+)%%/g,
